@@ -35,8 +35,32 @@ def timed_cycle(monkeypatch):
     rpi_pkg.__path__ = [""]
     rpi_pkg.GPIO = fake_gpio
 
+    # Mock cbpi modules required by the actor import
+    cbpi_mod = types.ModuleType("cbpi")
+    cbpi_api_mod = types.ModuleType("cbpi.api")
+    cbpi_dataclasses_mod = types.ModuleType("cbpi.api.dataclasses")
+
+    class MockCBPiActorBase:
+        def __init__(self, cbpi, id, props):
+            self.cbpi = cbpi
+            self.id = id
+            self.props = props
+            self.running = False
+
+    cbpi_api_mod.CBPiActor = MockCBPiActorBase
+    cbpi_api_mod.parameters = lambda *args, **kwargs: lambda cls: cls
+    cbpi_api_mod.Property = types.SimpleNamespace(Number=lambda *args, **kwargs: None)
+    cbpi_dataclasses_mod.NotificationType = types.SimpleNamespace(
+        INFO="INFO",
+        WARNING="WARNING",
+        ERROR="ERROR"
+    )
+
     sys.modules["RPi"] = rpi_pkg
     sys.modules["RPi.GPIO"] = fake_gpio
+    sys.modules["cbpi"] = cbpi_mod
+    sys.modules["cbpi.api"] = cbpi_api_mod
+    sys.modules["cbpi.api.dataclasses"] = cbpi_dataclasses_mod
 
     # Ensure the SUT is reloaded fresh each time
     if "cbpi4-TimedCycleActor.timed_cycle_actor" in sys.modules:
@@ -84,15 +108,14 @@ async def test_gpio_pin_is_high_10s_then_low_50s(timed_cycle, mock_sleep):
     fake_gpio.output.reset_mock()
 
     ######  Act  ######
-    await actor.run_iteration()
+    for i in range(actor.cycle_time * 60*2):
+        actor.run_iteration()
 
     ##### Assert  #####
+    logger.debug(f"GPIO output call args: {fake_gpio.output.call_args_list}")
     assert fake_gpio.output.call_args_list == [
         call(25, fake_gpio.HIGH),
+        call(25, fake_gpio.LOW),
+        call(25, fake_gpio.HIGH),
         call(25, fake_gpio.LOW)
-    ]
-
-    assert mock_sleep.call_args_list == [
-        call(10),
-        call(50)
     ]

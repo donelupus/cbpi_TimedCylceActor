@@ -31,12 +31,12 @@ class Logger():
     def error(self, message):
         self.logger.error(message)
         self.cbpi.notify("StepperMotorActor", message, NotificationType.ERROR)
-'''
+
 @parameters([Property.Number(label="GPIO_Control", description="GPIO [BMC numbering] of upper Level Sensor"), 
             Property.Number(label="on_time",default_value = 90, description="The time in seconds the actor will be switched on every cycle_time min."),
             Property.Number(label="cycle_time",default_value = 12, description="The time in minutes between every on_time period.")])
 
-'''
+
 class TimedCycleActor(CBPiActor):
 
     def __init__(self, cbpi, id, props):
@@ -51,14 +51,15 @@ class TimedCycleActor(CBPiActor):
         '''
         self.logger.debug("TimedCycleActor - On_start method called")
 
-        self.gpio_control = self.props.get("GPIO_Control", None)
-        self.on_time = self.props.get("on_time", None)
-        self.cycle_time = self.props.get("cycle_time", None)
+        self.gpio_control = int(self.props.get("GPIO_Control", None))
+        self.on_time = int(self.props.get("on_time", 90))
+        self.cycle_time = int(self.props.get("cycle_time", 12))
 
         GPIO.setup(int(self.gpio_control), GPIO.OUT)
         GPIO.output(int(self.gpio_control), GPIO.LOW)
 
         self.state = False
+        self.counter = 0
         self.logger.debug(f"Variable state: {self.state}")
     
         pass
@@ -104,18 +105,21 @@ class TimedCycleActor(CBPiActor):
         self.logger.debug("TimedCycleActor - Run coroutine called")
         while self.running == True:
             if self.state == True:
-                await self.run_iteration()
+                self.run_iteration()
 
             await asyncio.sleep(1)
 
-    async def run_iteration(self):
-        '''
-        This method is called by the run coroutine to execute one iteration of the actor's behavior.
-        '''
-        self.logger.debug("TimedCycleActor - Run_iteration method called")
-        GPIO.output(int(self.gpio_control), GPIO.HIGH)
-        self.logger.debug(f"TimedCycleActor: Run coroutine called - GPIO high; wait for {self.on_time} seconds")
-        await asyncio.sleep(self.on_time)
-        GPIO.output(int(self.gpio_control), GPIO.LOW)
-        self.logger.debug(f"TimedCycleActor: Run coroutine called - GPIO low; next on time after {self.cycle_time} minutes")
-        await asyncio.sleep(self.cycle_time * 60 - self.on_time)
+    def run_iteration(self):
+        self.logger.debug(f"TimedCycleActor - Run_iteration called; counter: {self.counter}")
+        if self.counter == 0:
+            self.logger.debug(f"TimedCycleActor: GPIO set HIGH; waiting {self.on_time} seconds")
+            GPIO.output(int(self.gpio_control), GPIO.HIGH)
+
+        elif self.counter == int(self.on_time):
+            self.logger.debug(f"TimedCycleActor: GPIO set LOW; waiting for cycle to complete")
+            GPIO.output(int(self.gpio_control), GPIO.LOW)
+
+        elif self.counter == int(self.cycle_time * 60):
+            self.logger.debug("TimedCycleActor: Cycle complete, resetting counter")
+            self.counter = -1
+        self.counter += 1
